@@ -12,7 +12,7 @@ contract TaxHandler is ITaxHandler {
     event TaxPaid(address indexed from, address indexed to, uint256 amount, uint256 tax);
 
     // 计算交易应缴纳的税费
-    function getTax(address token, address from, address to,uint256 amount) public returns (uint256) {
+    function getTax(address from, address to,uint256 amount) public returns (uint256) {
         // 计算税费
         uint256 tax = (amount * BURN_RATE) / 10000;
 

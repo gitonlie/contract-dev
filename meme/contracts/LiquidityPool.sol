@@ -99,6 +99,14 @@ contract LiquidityPool is MemeCoin, ReentrancyGuard {
         emit LiquidityAdd(msg.sender, _token1Amount, _token2Amount, liquidity);
     }
 
+    /**
+     * @dev 移除流动性
+     * @param liquidity 要移除的流动性代币数量
+     * @param minToken1Amount 最小接受的代币1数量
+     * @param minToken2Amount 最小接受的代币2数量
+     * @return token1Amount 实际移除的代币1数量
+     * @return token2Amount 实际移除的代币2数量
+     */
     function removeLiquidity(
         uint256 liquidity,
         uint256 minToken1Amount,

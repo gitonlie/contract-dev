@@ -7,30 +7,51 @@ import "./TaxHandler.sol";
 
 contract MemeCoin is IERC20 , Ownable{
 
+    // 固定总供应量 - 1万亿代币（带18位小数）
+    uint256 public constant TOTAL_SUPPLY = 1_000_000_000_000 * 1e18;
+
     //余额
     mapping(address => uint256) private _balances;
 
     //授权
     mapping(address => mapping(address => uint256)) private _allowances;
 
+    // 记录每个地址最近一次转账时间 (按天计算)
+    mapping(address => uint256) private lastTransactionDay;
+    
+    // 记录每个地址每日转账次数
+    mapping(address => uint256) public dailyTransactionCount;
+
+    //单笔额度限制100万
+    uint256 private limitOnce = 1000000 * 1e18;
+    //每日转账次数限制
+    uint256 public maxDailyTransactions = 10;
+
     string private _name;
     string private _symbol;
     uint256 private _totalSupply;
     TaxHandler private _taxHandler;
-    // 销毁地址
-    address private _burnAddress;
 
     //构造函数
-    constructor() Ownable(msg.sender) {
-        _name = "MemeCoin";
-        _symbol = "SHBC";
-        _totalSupply = 1e10 * 1e18;
-
+    constructor(string memory name_, string memory symbol_) Ownable(msg.sender) {
+        _name = name_;
+        _symbol = symbol_;
+        _totalSupply = TOTAL_SUPPLY;
         _taxHandler = new TaxHandler();
-        _burnAddress = address(0);
 
         _balances[msg.sender] = totalSupply();
         emit Transfer(address(0), msg.sender, totalSupply());
+    }
+
+    event Mint(address indexed to, uint256 amount);
+    event Burn(address indexed from, uint256 amount);
+
+    modifier checkLimit(uint256 value) {
+        //检查转账额度是否超过单笔额度限制
+        require(value <= limitOnce, "Transfer amount exceeds limit");
+        //检查并更新每日交易计数
+        _checkAndUpdateDailyCount(_msgSender());
+        _;
     }
 
     //代币名称
@@ -66,32 +87,53 @@ contract MemeCoin is IERC20 , Ownable{
     }
 
     //内部转账
-    function _transfer(address from, address to, uint256 value) internal virtual {
-        require(from != address(0), "ERC20: transfer from the zero address");
-        require(to != address(0), "ERC20: transfer to the zero address");
+    function _transfer(address from, address to, uint256 value) internal virtual checkLimit(value) {
 
-        uint256 fromBalance = _balances[from];
-        require(fromBalance >= value, "ERC20: transfer amount exceeds balance");
-        // 从发送者余额中减去转账金额
-        _balances[from] = fromBalance - value;
+        if (from == owner() && to != address(0) || from != address(0) && to == owner()) {
+            //由部署转账或者转账给部署者不收代币税
+            _balances[from] -= value;
+            _balances[to] += value;
+            emit Transfer(from, to, value);
+            return;
+        }
 
-        // 计算税费
-        uint256 tax = _taxHandler.getTax(from, to, value);
-        uint256 taxAmount = value - tax;
-        // 向接收者余额中增加转账金额
-        _balances[to] += taxAmount;
 
-        //销毁
-        _burn(_burnAddress, tax);
-        //总供应量
-        _totalSupply -= tax;
+        if(from == address(0)){
+            _totalSupply += value;
+        }else{
+            uint256 fromBalance = _balances[from];
+            require(fromBalance >= value, "ERC20: transfer amount exceeds balance");
+            // 从发送者余额中减去转账金额
+            _balances[from] = fromBalance - value;
+        }
 
+        if(to == address(0)){
+            _totalSupply -= value;
+        }else{
+            // 计算税费
+            uint256 tax = _taxHandler.getTax(from, to, value);
+            uint256 taxAmount = value - tax;
+            // 向接收者余额中增加转账金额
+            _balances[to] += taxAmount;
+
+            //转移代币税到特殊地址
+            _balances[address(0)] += tax;
+            //销毁代币
+            _totalSupply -= tax;
+        }
         emit Transfer(from, to, value);
     }
 
-    //转移到特殊地址
-    function _burn(address target, uint256 amount)internal {
-        _balances[target] += amount;
+    //销毁代币(针对此合约实际是将当前账户余额释放给合约部署者)
+    function _burn(address from, uint256 amount)public virtual {
+        _transfer(from, owner(), amount);
+        emit Burn(from, amount);
+    }
+
+    //铸造代币(针对此合约实际是拥有者将余额转移给当前账户)
+    function _mint(address to, uint256 amount)public virtual {
+        _transfer(owner(), to, amount);
+        emit Mint(to, amount);
     }
 
     //授权转账额度设置
@@ -132,6 +174,29 @@ contract MemeCoin is IERC20 , Ownable{
                 _approve(owner, spender, currentAllowance - value);
             }
         }
+    }
+
+        /**
+     * @dev 检查并更新每日交易计数
+     */
+    function _checkAndUpdateDailyCount(address _address) private {
+        // 获取当前日期 (按天计算)
+        uint256 currentDay = block.timestamp / 1 days;
+        
+        // 如果是新的一天，重置计数
+        if (lastTransactionDay[_address] != currentDay) {
+            dailyTransactionCount[_address] = 0;
+            lastTransactionDay[_address] = currentDay;
+        }
+        
+        // 检查是否超过每日交易次数限制
+        require(
+            dailyTransactionCount[_address] < maxDailyTransactions,
+            "Daily transaction limit exceeded"
+        );
+        
+        // 增加交易计数
+        dailyTransactionCount[_address]++;
     }
 
 }

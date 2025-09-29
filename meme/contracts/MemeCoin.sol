@@ -76,7 +76,7 @@ contract MemeCoin is IERC20 , Ownable{
         _balances[from] = fromBalance - value;
 
         // 计算税费
-        uint256 tax = _taxHandler.getTax(address(this), from, to, value);
+        uint256 tax = _taxHandler.getTax(from, to, value);
         uint256 taxAmount = value - tax;
         // 向接收者余额中增加转账金额
         _balances[to] += taxAmount;
